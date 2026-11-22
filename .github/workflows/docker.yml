@@ -35,7 +35,6 @@ concurrency:
 jobs:
   docker-build-deploy:
     if: >-
-      github.repository == 'Pumpkin-MC/Pumpkin' &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read
@@ -135,7 +134,6 @@ jobs:
 
   merge:
     if: >-
-      github.repository == 'Pumpkin-MC/Pumpkin' &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     permissions:
       contents: read

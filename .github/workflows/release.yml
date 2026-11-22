@@ -28,11 +28,14 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: X64
+            target: x86_64-unknown-linux-musl
           - os: ubuntu-latest
             arch: X64-v3
+            target: x86_64-unknown-linux-musl
             rustflags: -C target-cpu=x86-64-v3
           - os: ubuntu-26.04-arm
             arch: ARM64
+            target: aarch64-unknown-linux-musl
           - os: windows-latest
             arch: X64
           - os: windows-latest
@@ -44,19 +47,29 @@ jobs:
             arch: ARM64
     env:
       RUSTFLAGS: -Dwarnings ${{ matrix.rustflags }}
+      SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - run: rustup update stable && rustup default stable
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Add musl target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.arch }}
 
       - name: Build Release
         shell: bash
-        run: cargo build --verbose --release
+        run: |
+          TARGET_ARG=""
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG="--target ${{ matrix.target }}"; fi
+          cargo build --verbose --release $TARGET_ARG
 
       - name: Prepare artifacts
         shell: bash
@@ -64,10 +77,15 @@ jobs:
           mkdir -p dist
           EXT=""
           if [ "${{ runner.os }}" == "Windows" ]; then EXT=".exe"; fi
-          cp "target/release/pumpkin$EXT" "dist/pumpkin-${{ matrix.arch }}-${{ runner.os }}$EXT"
+          if [ -n "${{ matrix.target }}" ]; then
+            TARGET_DIR="target/${{ matrix.target }}/release"
+          else
+            TARGET_DIR="target/release"
+          fi
+          cp "$TARGET_DIR/pumpkin$EXT" "dist/pumpkin-${{ matrix.arch }}-${{ runner.os }}$EXT"
 
       - name: Upload unsigned Windows executable
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && env.SIGNPATH_TOKEN != ''
         uses: actions/upload-artifact@v7
         with:
           name: unsigned-${{ matrix.arch }}-${{ runner.os }}
@@ -75,7 +93,7 @@ jobs:
           retention-days: 14
 
       - name: Export executable
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' || env.SIGNPATH_TOKEN == ''
         uses: actions/upload-artifact@v7
         with:
           name: pumpkin-${{ matrix.arch }}-${{ runner.os }}
@@ -84,6 +102,7 @@ jobs:
 
   sign_windows_release:
     name: Sign Windows release
+    if: secrets.SIGNPATH_API_TOKEN != ''
     permissions:
       actions: read
     needs: build_release
@@ -165,7 +184,7 @@ jobs:
     name: Publish GitHub Release
     permissions:
       contents: write
-    needs: [build_release, sign_windows_release, build_android_release]
+    needs: [build_release, build_android_release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

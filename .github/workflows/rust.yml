@@ -253,8 +253,10 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
           - name: Linux ARM64
             os: ubuntu-26.04-arm
+            target: aarch64-unknown-linux-musl
           - name: Windows x64
             os: windows-latest
           - name: Windows ARM64
@@ -271,13 +273,21 @@ jobs:
         with:
           python-version: "3.x"
       - run: rustup update ${{ env.CI_RUST_TOOLCHAIN_VER }} && rustup default ${{ env.CI_RUST_TOOLCHAIN_VER }}
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Add musl target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: debug-${{ runner.os }}-${{ runner.arch }}
       - name: Build affected packages
         run: >-
+          TARGET_ARG="";
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG="--target ${{ matrix.target }}"; fi;
           python .github/scripts/ci_packages.py run --
-          cargo build --verbose
+          cargo build --verbose $TARGET_ARG
 
   build_android_pull_request:
     name: Build affected packages for Android AArch64
@@ -327,9 +337,11 @@ jobs:
           - name: Linux x64
             os: ubuntu-latest
             asset: pumpkin-X64-Linux
+            target: x86_64-unknown-linux-musl
           - name: Linux ARM64
             os: ubuntu-26.04-arm
             asset: pumpkin-ARM64-Linux
+            target: aarch64-unknown-linux-musl
           - name: Windows x64
             os: windows-latest
             asset: pumpkin-X64-Windows.exe
@@ -350,16 +362,30 @@ jobs:
         with:
           submodules: recursive
       - run: rustup update ${{ env.CI_RUST_TOOLCHAIN_VER }} && rustup default ${{ env.CI_RUST_TOOLCHAIN_VER }}
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Add musl target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build release
-        run: cargo build --verbose --release
+        run: |
+          TARGET_ARG=""
+          if [ -n "${{ matrix.target }}" ]; then TARGET_ARG="--target ${{ matrix.target }}"; fi
+          cargo build --verbose --release $TARGET_ARG
       - name: Prepare artifact
         shell: bash
         run: |
           mkdir -p dist
           EXT=""
           if [ "${{ runner.os }}" == "Windows" ]; then EXT=".exe"; fi
-          cp "target/release/pumpkin$EXT" "dist/${{ matrix.asset }}"
+          if [ -n "${{ matrix.target }}" ]; then
+            TARGET_DIR="target/${{ matrix.target }}/release"
+          else
+            TARGET_DIR="target/release"
+          fi
+          cp "$TARGET_DIR/pumpkin$EXT" "dist/${{ matrix.asset }}"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
